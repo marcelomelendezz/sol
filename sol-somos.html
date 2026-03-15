@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SOMOS · El Sol</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace;}
+#app{width:100%;height:100%;position:relative;}
+canvas{display:block;touch-action:none;}
+
+#hud{
+  position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  pointer-events:none;
+}
+#hud-row{display:flex;gap:10px;align-items:center;}
+.hud-val{
+  font-size:clamp(9px,2.5vw,12px);color:rgba(255,200,80,0.7);
+  letter-spacing:1px;text-shadow:0 0 8px rgba(255,150,0,0.5);
+}
+
+/* D-PAD */
+#dpad{
+  position:absolute;bottom:14px;right:14px;
+  display:grid;grid-template-columns:44px 44px 44px;
+  grid-template-rows:44px 44px 44px;gap:3px;
+  pointer-events:all;
+}
+.dp{
+  border-radius:8px;background:rgba(255,150,0,0.1);
+  border:1.5px solid rgba(255,150,0,0.25);
+  color:rgba(255,180,60,0.8);font-size:18px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;touch-action:manipulation;transition:all 0.07s;
+  user-select:none;-webkit-user-select:none;
+}
+.dp:active,.dp.pressed{background:rgba(255,150,0,0.3);border-color:rgba(255,180,60,0.6);
+  box-shadow:0 0 10px rgba(255,150,0,0.4);}
+.dp.center{background:rgba(255,150,0,0.05);border-color:rgba(255,150,0,0.1);font-size:12px;color:rgba(255,150,0,0.3);}
+
+/* SLIDERS PANEL */
+#controls{
+  position:absolute;top:10px;left:10px;
+  display:flex;flex-direction:column;gap:5px;
+  background:rgba(0,0,0,0.55);border:1px solid rgba(255,150,0,0.2);
+  border-radius:12px;padding:8px 10px;min-width:160px;
+}
+.ctrl-row{display:flex;align-items:center;gap:6px;}
+.ctrl-row label{font-size:9px;color:rgba(255,180,60,0.6);width:68px;letter-spacing:1px;}
+.ctrl-row input[type=range]{flex:1;accent-color:#ff9900;height:3px;}
+.ctrl-row .val{font-size:9px;color:rgba(255,200,80,0.8);width:28px;text-align:right;}
+.ctrl-title{font-size:8px;color:rgba(255,150,0,0.5);letter-spacing:2px;margin-bottom:2px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="c"></canvas>
+
+  <!-- CONTROLS -->
+  <div id="controls">
+    <div class="ctrl-title">⚙ PARÁMETROS</div>
+    <div class="ctrl-row">
+      <label>MASA</label>
+      <input type="range" id="sl-mass" min="1" max="100" value="50">
+      <span class="val" id="vl-mass">50</span>
+    </div>
+    <div class="ctrl-row">
+      <label>BRILLO</label>
+      <input type="range" id="sl-bright" min="10" max="100" value="60">
+      <span class="val" id="vl-bright">60</span>
+    </div>
+    <div class="ctrl-row">
+      <label>ONDAS</label>
+      <input type="range" id="sl-waves" min="1" max="20" value="8">
+      <span class="val" id="vl-waves">8</span>
+    </div>
+    <div class="ctrl-row">
+      <label>VELOCIDAD</label>
+      <input type="range" id="sl-speed" min="1" max="10" value="4">
+      <span class="val" id="vl-speed">4</span>
+    </div>
+    <div class="ctrl-row">
+      <label>COLOR</label>
+      <input type="range" id="sl-color" min="0" max="100" value="30">
+      <span class="val" id="vl-color">🌟</span>
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="hud-row">
+      <span class="hud-val" id="hud-pos">x: 0  y: 0</span>
+      <span class="hud-val" id="hud-vel">vel: 0</span>
+    </div>
+    <div class="hud-val" style="font-size:8px;opacity:0.4">FLECHAS / WASD · DRAG para mover</div>
+  </div>
+
+  <!-- D-PAD -->
+  <div id="dpad">
+    <div></div>
+    <div class="dp" id="dp-up">▲</div>
+    <div></div>
+    <div class="dp" id="dp-left">◀</div>
+    <div class="dp center">☀</div>
+    <div class="dp" id="dp-right">▶</div>
+    <div></div>
+    <div class="dp" id="dp-down">▼</div>
+    <div></div>
+  </div>
+</div>
+
+<script>
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+let W,H;
+function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; }
+window.addEventListener('resize',()=>{ resize(); });
+resize();
+
+// ── PARAMETERS ───────────────────────────────────────────
+const P={
+  mass:50, bright:60, waves:8, speed:4, colorHue:30,
+};
+
+// Sliders
+const sliders=[
+  ['mass','vl-mass',v=>{ P.mass=v; }],
+  ['bright','vl-bright',v=>{ P.bright=v; }],
+  ['waves','vl-waves',v=>{ P.waves=v; }],
+  ['speed','vl-speed',v=>{ P.speed=v; }],
+  ['color','vl-color',v=>{ P.colorHue=v*3.6;
+    document.getElementById('vl-color').textContent=['🌟','🔵','🟣','🔴','🟢','🟡','🟠'][Math.floor(v/15)]||'🌟';}],
+];
+sliders.forEach(([id,vid,fn])=>{
+  const sl=document.getElementById('sl-'+id);
+  const vl=document.getElementById(vid);
+  sl.addEventListener('input',()=>{fn(parseInt(sl.value));if(id!=='color')vl.textContent=sl.value;});
+});
+
+// ── SUN STATE ─────────────────────────────────────────────
+let sun={
+  x:0, y:0,           // world position
+  vx:0, vy:0,
+  ax:0, ay:0,
+};
+
+// Camera = sun position, instant (no lag = no desync)
+let cam={x:0,y:0};
+
+// Stars (fixed in world space, generated around origin, tiled)
+const STAR_TILE=3000;
+const stars=[];
+for(let i=0;i<800;i++){
+  stars.push({
+    wx:(Math.random()-0.5)*STAR_TILE*4,
+    wy:(Math.random()-0.5)*STAR_TILE*4,
+    r:Math.random()*1.8+0.2,
+    bright:Math.random(),
+    twinkle:Math.random()*Math.PI*2,
+    twinkleSpeed:0.02+Math.random()*0.04,
+  });
+}
+
+// Nearby objects (planets / asteroids)
+const OBJECTS=[];
+for(let i=0;i<25;i++){
+  const a=Math.random()*Math.PI*2;
+  const d=400+Math.random()*2000;
+  OBJECTS.push({
+    wx:Math.cos(a)*d, wy:Math.sin(a)*d,
+    r:3+Math.random()*18,
+    color:`hsl(${Math.floor(Math.random()*360)},${40+Math.floor(Math.random()*50)}%,${30+Math.floor(Math.random()*40)}%)`,
+    orbitAngle:a,
+    orbitSpeed:(Math.random()-0.5)*0.0005,
+    type:Math.random()<0.3?'planet':'asteroid',
+  });
+}
+
+// ── INPUT ─────────────────────────────────────────────────
+const keys={};
+document.addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();
+});
+document.addEventListener('keyup',e=>keys[e.code]=false);
+
+// D-PAD
+function setupDP(id,code){
+  const btn=document.getElementById(id);
+  const on=()=>{keys[code]=true;btn.classList.add('pressed');};
+  const off=()=>{keys[code]=false;btn.classList.remove('pressed');};
+  btn.addEventListener('mousedown',on);btn.addEventListener('mouseup',off);btn.addEventListener('mouseleave',off);
+  btn.addEventListener('touchstart',e=>{e.preventDefault();on();},{passive:false});
+  btn.addEventListener('touchend',e=>{e.preventDefault();off();},{passive:false});
+}
+setupDP('dp-up','ArrowUp');setupDP('dp-down','ArrowDown');
+setupDP('dp-left','ArrowLeft');setupDP('dp-right','ArrowRight');
+
+// Touch drag on canvas
+let touchDrag=null;
+canvas.addEventListener('touchstart',e=>{
+  if(e.target!==canvas)return;
+  const t=e.touches[0];
+  touchDrag={startX:t.clientX,startY:t.clientY,lastX:t.clientX,lastY:t.clientY};
+},{passive:true});
+canvas.addEventListener('touchmove',e=>{
+  if(!touchDrag)return;
+  const t=e.touches[0];
+  const dx=t.clientX-touchDrag.lastX, dy=t.clientY-touchDrag.lastY;
+  sun.vx-=dx*0.08; sun.vy-=dy*0.08;
+  touchDrag.lastX=t.clientX; touchDrag.lastY=t.clientY;
+},{passive:true});
+canvas.addEventListener('touchend',()=>touchDrag=null);
+
+// ── WAVE GRID ─────────────────────────────────────────────
+// Pre-compute a grid of warp values relative to sun position
+// The spacetime fabric warps around the sun
+
+function getWarpAt(wx,wy){
+  // Distance from sun in world coords
+  const dx=wx-sun.x, dy=wy-sun.y;
+  const d=Math.sqrt(dx*dx+dy*dy);
+  if(d<1)return 0;
+  const mass=P.mass;
+  // Gravitational well + ripple waves
+  const well=mass*80/(d+mass*0.5);
+  const wavePeriod=mass*3+50;
+  const waveT=animT*0.8;
+  const ripple=Math.sin(d/wavePeriod-waveT)*Math.exp(-d/(mass*8+200));
+  return (well*0.012+ripple*0.6)*(mass/50);
+}
+
+// ── ANIMATION ─────────────────────────────────────────────
+let animT=0;
+let raf;
+
+function update(){
+  animT+=0.016;
+
+  const thrust=P.speed*0.10;
+  const drag=0.965;
+
+  let ax=0,ay=0;
+  if(keys['ArrowUp']||keys['KeyW'])    ay-=thrust;
+  if(keys['ArrowDown']||keys['KeyS'])  ay+=thrust;
+  if(keys['ArrowLeft']||keys['KeyA'])  ax-=thrust;
+  if(keys['ArrowRight']||keys['KeyD']) ax+=thrust;
+
+  // Diagonal normalization
+  if(ax!==0&&ay!==0){ax*=0.707;ay*=0.707;}
+
+  sun.vx+=ax; sun.vy+=ay;
+  sun.vx*=drag; sun.vy*=drag;
+
+  // Speed limit
+  const spd=Math.hypot(sun.vx,sun.vy);
+  const maxSpd=P.speed*5;
+  if(spd>maxSpd){sun.vx=sun.vx/spd*maxSpd;sun.vy=sun.vy/spd*maxSpd;}
+  sun.x+=sun.vx; sun.y+=sun.vy;
+
+  // Camera locked to sun — zero lag, zero desync
+  cam.x=sun.x;
+  cam.y=sun.y;
+
+  // Update object orbits slightly (they drift)
+  OBJECTS.forEach(o=>{
+    o.orbitAngle+=o.orbitSpeed;
+  });
+
+  // HUD
+  document.getElementById('hud-pos').textContent=
+    `x: ${Math.round(sun.x)}  y: ${Math.round(sun.y)}`;
+  document.getElementById('hud-vel').textContent=
+    `vel: ${spd.toFixed(1)}`;
+}
+
+// ── DRAW ──────────────────────────────────────────────────
+function draw(){
+  ctx.fillStyle='#000008';ctx.fillRect(0,0,W,H);
+
+  const cx=W/2-cam.x, cy=H/2-cam.y; // world-to-screen offset
+
+  drawStars(cx,cy);
+  drawSpacetimeFabric();
+  drawObjects(cx,cy);
+  drawSun(cx,cy);
+  drawGravityLens(cx,cy);
+}
+
+function worldToScreen(wx,wy,cx,cy){
+  return{x:wx+cx, y:wy+cy};
+}
+
+function drawStars(cx,cy){
+  // Stars move at 0.15x parallax — they're "far away"
+  const parallax=0.15;
+  stars.forEach(s=>{
+    s.twinkle+=s.twinkleSpeed;
+    // Parallax offset + tile seamlessly
+    let sx=((s.wx - cam.x*parallax) % W + W*2) % W;
+    let sy=((s.wy - cam.y*parallax) % H + H*2) % H;
+    const bright=s.bright*(0.6+0.4*Math.sin(s.twinkle));
+    const distToSun=Math.hypot(sx-W/2,sy-H/2);
+    const washout=Math.max(0,1-Math.min(1,P.bright*0.008*180/(distToSun+80)));
+    if(bright*washout<0.02) return;
+    ctx.globalAlpha=bright*washout;
+    // Bright stars get a cross flare
+    if(s.r>1.4&&bright>0.7){
+      ctx.strokeStyle='rgba(255,255,255,0.3)';ctx.lineWidth=0.6;
+      ctx.beginPath();ctx.moveTo(sx-s.r*2.5,sy);ctx.lineTo(sx+s.r*2.5,sy);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(sx,sy-s.r*2.5);ctx.lineTo(sx,sy+s.r*2.5);ctx.stroke();
+    }
+    ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.arc(sx,sy,s.r,0,Math.PI*2);ctx.fill();
+  });
+  ctx.globalAlpha=1;
+}
+
+function warpPoint(baseX,baseY){
+  // baseX,baseY are already screen coords with grid offset applied
+  // Sun is always at screen center W/2, H/2
+  const dx=baseX-W/2, dy=baseY-H/2;
+  const d2=dx*dx+dy*dy;
+  const d=Math.sqrt(d2)+0.001;
+  const mass=P.mass;
+  const wavePeriod=mass*4+60;
+  const rippleAmp=mass*0.45+4;
+  const decay=mass*12+300;
+  let warp=0;
+  const wc=Math.min(P.waves,12);
+  for(let w=0;w<wc;w++){
+    warp+=Math.sin(d/wavePeriod*Math.PI*2-animT*1.5+w*(Math.PI*2/wc))
+      *rippleAmp*Math.exp(-d/decay)/(w*0.28+1);
+  }
+  const well=mass*55/(d+mass*0.8);
+  const totalD=(well*0.14+warp);
+  return{
+    x:baseX+(dx/d)*totalD,
+    y:baseY+(dy/d)*totalD,
+    prox:Math.max(0,1-d/(mass*5+220)),
+  };
+}
+
+function drawSpacetimeFabric(){
+  const gs=80; // grid spacing
+  const hue=P.colorHue;
+  const offX=((cam.x%gs)+gs)%gs;
+  const offY=((cam.y%gs)+gs)%gs;
+  const cols=Math.ceil(W/gs)+2;
+  const rows=Math.ceil(H/gs)+2;
+  const STEPS=5; // subdivisions per grid cell for smooth curves
+
+  // Draw horizontal lines
+  for(let row=0;row<=rows;row++){
+    const baseY=row*gs-offY;
+    const totalCols=cols*STEPS;
+    // Build warped polyline
+    const pts=[];
+    for(let i=0;i<=totalCols;i++){
+      const bx=i*(W/totalCols)-offX;
+      const p=warpPoint(bx,baseY);
+      pts.push(p);
+    }
+    // Draw as gradient segments grouped by proximity bucket
+    for(let i=0;i<pts.length-1;i++){
+      const prox=(pts[i].prox+pts[i+1].prox)*0.5;
+      const alpha=0.07+prox*0.28;
+      const lh=hue+prox*65;
+      ctx.strokeStyle=`hsla(${lh},${55+prox*40}%,${38+prox*38}%,${alpha})`;
+      ctx.lineWidth=0.7+prox*1.8;
+      ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[i+1].x,pts[i+1].y);ctx.stroke();
+    }
+  }
+
+  // Draw vertical lines
+  for(let col=0;col<=cols;col++){
+    const baseX=col*gs-offX;
+    const totalRows=rows*STEPS;
+    const pts=[];
+    for(let i=0;i<=totalRows;i++){
+      const by=i*(H/totalRows)-offY;
+      const p=warpPoint(baseX,by);
+      pts.push(p);
+    }
+    for(let i=0;i<pts.length-1;i++){
+      const prox=(pts[i].prox+pts[i+1].prox)*0.5;
+      const alpha=0.07+prox*0.28;
+      const lh=hue+prox*65;
+      ctx.strokeStyle=`hsla(${lh},${55+prox*40}%,${38+prox*38}%,${alpha})`;
+      ctx.lineWidth=0.7+prox*1.8;
+      ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[i+1].x,pts[i+1].y);ctx.stroke();
+    }
+  }
+
+  // Concentric ripple rings — always centered on sun (screen center)
+  const mass=P.mass;
+  const ringSpeed=P.speed*0.06+0.3;
+  for(let ring=0;ring<14;ring++){
+    const baseR=(ring*55+animT*38*ringSpeed)%(mass*7+220);
+    const alpha=Math.max(0,0.22-ring*0.013)*(mass/50);
+    if(alpha<0.005)continue;
+    const prox=Math.max(0,1-baseR/(mass*4+160));
+    ctx.strokeStyle=`hsla(${hue+prox*80},85%,${48+prox*35}%,${alpha})`;
+    ctx.lineWidth=0.8+prox*2.2;
+    ctx.beginPath();ctx.arc(W/2,H/2,baseR,0,Math.PI*2);ctx.stroke();
+  }
+}
+
+function drawObjects(cx,cy){
+  OBJECTS.forEach(o=>{
+    const p=worldToScreen(o.wx,o.wy,cx,cy);
+    // Only draw if on screen
+    if(p.x<-50||p.x>W+50||p.y<-50||p.y>H+50)return;
+    const distToSun=Math.hypot(o.wx-sun.x,o.wy-sun.y);
+    // Gravitational lensing: objects near sun appear distorted
+    const lensShift=P.mass*30/(distToSun+P.mass);
+    const dx=sun.x-o.wx, dy=sun.y-o.wy;
+    const d=Math.hypot(dx,dy);
+    const lx=p.x+(dx/d)*lensShift*0.5;
+    const ly=p.y+(dy/d)*lensShift*0.5;
+
+    if(o.type==='planet'){
+      // Planet with atmosphere
+      const atm=ctx.createRadialGradient(lx,ly,o.r*0.5,lx,ly,o.r*1.8);
+      atm.addColorStop(0,o.color+'00');atm.addColorStop(0.5,o.color+'00');
+      atm.addColorStop(0.8,o.color+'33');atm.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=atm;ctx.beginPath();ctx.arc(lx,ly,o.r*1.8,0,Math.PI*2);ctx.fill();
+      // Body
+      const g=ctx.createRadialGradient(lx-o.r*0.3,ly-o.r*0.3,o.r*0.1,lx,ly,o.r);
+      g.addColorStop(0,lighten(o.color,40));g.addColorStop(0.6,o.color);g.addColorStop(1,darken(o.color,40));
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(lx,ly,o.r,0,Math.PI*2);ctx.fill();
+    } else {
+      ctx.fillStyle=o.color;ctx.globalAlpha=0.6;
+      ctx.beginPath();ctx.arc(lx,ly,o.r,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=1;
+    }
+  });
+}
+
+function drawSun(cx,cy){
+  const sx=W/2, sy=H/2; // sun always at screen center
+  const mass=P.mass;
+  const baseR=mass*0.8+25;
+  const bright=P.bright/100;
+  const hue=P.colorHue;
+
+  // ── OUTER CORONA ──
+  for(let layer=6;layer>=0;layer--){
+    const r=baseR*(2.5+layer*1.2);
+    const alpha=(0.04-layer*0.004)*bright;
+    const g=ctx.createRadialGradient(sx,sy,r*0.3,sx,sy,r);
+    g.addColorStop(0,`hsla(${hue+20},100%,80%,${alpha*2})`);
+    g.addColorStop(0.5,`hsla(${hue+10},90%,60%,${alpha})`);
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(sx,sy,r,0,Math.PI*2);ctx.fill();
+  }
+
+  // ── CORONA RAYS ──
+  const rayCount=12+Math.floor(mass/12);
+  for(let i=0;i<rayCount;i++){
+    const a=i*Math.PI*2/rayCount+animT*0.08;
+    const pulse=0.7+0.3*Math.sin(animT*1.5+i*0.8);
+    const rLen=baseR*(2.2+pulse*1.8)*bright;
+    const rW=baseR*0.18;
+    ctx.save();ctx.translate(sx,sy);ctx.rotate(a);
+    const rg=ctx.createLinearGradient(baseR*0.7,0,rLen,0);
+    rg.addColorStop(0,`hsla(${hue+30},100%,90%,${0.18*bright})`);
+    rg.addColorStop(0.4,`hsla(${hue+20},100%,70%,${0.08*bright})`);
+    rg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=rg;
+    ctx.beginPath();ctx.moveTo(baseR*0.7,-rW*pulse);
+    ctx.lineTo(rLen,0);ctx.lineTo(baseR*0.7,rW*pulse);ctx.closePath();ctx.fill();
+    ctx.restore();
+  }
+
+  // ── CHROMOSPHERE ──
+  const chrom=ctx.createRadialGradient(sx,sy,baseR*0.6,sx,sy,baseR*1.25);
+  chrom.addColorStop(0,`hsla(${hue+40},100%,95%,0)`);
+  chrom.addColorStop(0.7,`hsla(${hue+20},100%,70%,${0.3*bright})`);
+  chrom.addColorStop(1,`hsla(${hue},100%,50%,0)`);
+  ctx.fillStyle=chrom;ctx.beginPath();ctx.arc(sx,sy,baseR*1.25,0,Math.PI*2);ctx.fill();
+
+  // ── SURFACE ──
+  const sg=ctx.createRadialGradient(sx-baseR*0.28,sy-baseR*0.28,baseR*0.05,sx,sy,baseR);
+  sg.addColorStop(0,`hsl(${hue+50},100%,98%)`);
+  sg.addColorStop(0.3,`hsl(${hue+30},100%,80%)`);
+  sg.addColorStop(0.7,`hsl(${hue+10},100%,60%)`);
+  sg.addColorStop(1,`hsl(${hue},90%,40%)`);
+  ctx.fillStyle=sg;
+  // No shadowBlur on main body (causes flicker) — use radial glow instead
+  ctx.beginPath();ctx.arc(sx,sy,baseR,0,Math.PI*2);ctx.fill();
+
+  // ── SURFACE DETAIL (sunspots + convection) ──
+  const spotCount=3+Math.floor(mass/25);
+  for(let i=0;i<spotCount;i++){
+    const a=i*Math.PI*2/spotCount+animT*0.02*(i%2===0?1:-1);
+    const dr=baseR*(0.25+0.35*(i%3)*0.33);
+    const spx=sx+Math.cos(a)*dr, spy=sy+Math.sin(a)*dr;
+    const sr=baseR*(0.08+0.04*(i%2));
+    // Convection cell
+    ctx.fillStyle=`hsla(${hue+15},100%,55%,0.35)`;
+    ctx.beginPath();ctx.arc(spx,spy,sr*1.5,0,Math.PI*2);ctx.fill();
+    // Sunspot
+    ctx.fillStyle=`hsla(${hue-10},80%,25%,0.5)`;
+    ctx.beginPath();ctx.arc(spx,spy,sr,0,Math.PI*2);ctx.fill();
+  }
+
+  // ── FLARES ──
+  for(let i=0;i<4;i++){
+    const a=i*Math.PI/2+animT*0.12+Math.sin(animT*0.5+i)*0.8;
+    const flen=baseR*(1.2+0.8*Math.abs(Math.sin(animT*0.8+i)))*bright;
+    ctx.save();ctx.translate(sx,sy);ctx.rotate(a);
+    const fg=ctx.createLinearGradient(baseR*0.85,0,baseR*0.85+flen,0);
+    fg.addColorStop(0,`hsla(${hue+40},100%,85%,${0.5*bright})`);
+    fg.addColorStop(0.5,`hsla(${hue+20},100%,65%,${0.2*bright})`);
+    fg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.strokeStyle=fg;ctx.lineWidth=baseR*0.1;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(baseR*0.85,0);
+    const cp1x=baseR*0.85+flen*0.3,cp1y=flen*0.3*(i%2===0?1:-1);
+    const cp2x=baseR*0.85+flen*0.7,cp2y=flen*0.15*(i%2===0?-1:1);
+    ctx.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,baseR*0.85+flen,0);
+    ctx.stroke();ctx.restore();
+  }
+
+  // ── INNER GLOW (replaces shadowBlur) ──
+  const iglow=ctx.createRadialGradient(sx,sy,baseR*0.85,sx,sy,baseR*1.6);
+  iglow.addColorStop(0,`hsla(${hue+30},100%,75%,${0.35*bright})`);
+  iglow.addColorStop(0.5,`hsla(${hue+15},100%,60%,${0.12*bright})`);
+  iglow.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=iglow;ctx.beginPath();ctx.arc(sx,sy,baseR*1.6,0,Math.PI*2);ctx.fill();
+
+  // ── INNER HIGHLIGHT ──
+  const hg=ctx.createRadialGradient(sx-baseR*0.35,sy-baseR*0.38,0,sx-baseR*0.15,sy-baseR*0.15,baseR*0.7);
+  hg.addColorStop(0,'rgba(255,255,255,0.55)');
+  hg.addColorStop(0.5,'rgba(255,255,255,0.08)');
+  hg.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=hg;ctx.beginPath();ctx.arc(sx,sy,baseR,0,Math.PI*2);ctx.fill();
+}
+
+function drawGravityLens(cx,cy){
+  // Gravitational lensing ring around sun
+  const mass=P.mass;
+  const r=mass*0.8+25;
+  const einsteinR=r*2.2;
+  ctx.strokeStyle=`hsla(${P.colorHue+30},100%,80%,0.12)`;
+  ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(W/2,H/2,einsteinR,0,Math.PI*2);ctx.stroke();
+  // Photon sphere
+  ctx.strokeStyle=`hsla(${P.colorHue+20},100%,70%,0.08)`;
+  ctx.lineWidth=1;
+  ctx.setLineDash([4,8]);
+  ctx.beginPath();ctx.arc(W/2,H/2,einsteinR*1.5,0,Math.PI*2);ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// ── LOOP ─────────────────────────────────────────────────
+function loop(){
+  raf=requestAnimationFrame(loop);
+  update();
+  draw();
+}
+loop();
+
+// ── UTILS ────────────────────────────────────────────────
+function lighten(col,a){
+  // Works for hsl strings
+  try{
+    if(col.startsWith('hsl')){
+      return col.replace(/(\d+)%\)$/,m=>Math.min(100,parseInt(m)+a)+'%)');
+    }
+    const n=parseInt(col.replace('#',''),16);
+    return`rgb(${Math.min(255,((n>>16)&255)+a)},${Math.min(255,((n>>8)&255)+a)},${Math.min(255,(n&255)+a)})`;
+  }catch{return col;}
+}
+function darken(col,a){
+  try{
+    const n=parseInt(col.replace('#',''),16);
+    return`rgb(${Math.max(0,((n>>16)&255)-a)},${Math.max(0,((n>>8)&255)-a)},${Math.max(0,(n&255)-a)})`;
+  }catch{return col;}
+}
+</script>
+</body>
+</html>
